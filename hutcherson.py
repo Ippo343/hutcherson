@@ -4,6 +4,7 @@
 import argparse
 import json
 import logging
+import requests
 import shelve
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -115,7 +116,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             affected_prs = [pr for pr in store["pulls"].values() if pr.target == branch]
 
         for pr in affected_prs:
-            print("PR {} affected ({})".format(pr.id, pr.api_url))
+            self.handle_affected_pr(pr)
+
+    def handle_affected_pr(self, pr):
+
+        payload = {"body": "test comment"}
+        url = pr.api_url.replace("/pulls/", "/issues/") + "/comments"
+        logging.info("Posting {} to {}".format(payload, url))
+
+        req = requests.post(url, data=json.dumps(payload))
+        logging.info("Request completed with status {}".format(req))
 
 
 def run(options):
