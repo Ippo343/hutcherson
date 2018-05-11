@@ -13,6 +13,8 @@ import shelve
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from requests.auth import HTTPBasicAuth
+
 
 class Hutcherson(BaseHTTPRequestHandler):
     """
@@ -23,6 +25,7 @@ class Hutcherson(BaseHTTPRequestHandler):
     security_header = None
     security_secret = None
     storage_path = None
+    comment_auth = None
     pr_comment = None
 
     # region Boring stuff
@@ -55,7 +58,7 @@ class Hutcherson(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
 
         auth = self.headers.get(self.security_header)
-        if not self.validate_token(self.security_secret, auth, post_data):
+        if not self.validate_token(auth, post_data):
             logging.warning("Received a POST request with an invalid token "
                             "from {}".format(self.client_address))
 
@@ -140,10 +143,10 @@ class Hutcherson(BaseHTTPRequestHandler):
         url = pr.api_url.replace("/pulls/", "/issues/") + "/comments"
         logging.debug("Posting comment to {}".format(url))
 
-        req = requests.post(url, data=json.dumps(payload))
+        req = requests.post(url, data=json.dumps(payload), auth=Hutcherson.comment_auth)
         logging.debug("Request completed with status {}".format(req))
 
-    def validate_token(self, secret, auth, post_data):
+    def validate_token(self, auth, post_data):
         hasher = hmac.new(self.security_secret, msg=post_data, digestmod="sha1")
         digest = "sha1=" + hasher.hexdigest()
         return hmac.compare_digest(digest, auth)
@@ -194,7 +197,12 @@ def run(config):
     Hutcherson.security_header = config.get("security", "header")
     Hutcherson.security_secret = config.get("security", "token")
     Hutcherson.storage_path = config.get("storage", "path")
+
     Hutcherson.pr_comment = config.get("comment", "body")
+    Hutcherson.comment_auth = HTTPBasicAuth(
+        config.get("comment", "user"),
+        config.get("comment", "token")
+    )
 
     Hutcherson.security_secret = Hutcherson.security_secret.encode("utf8")
 
