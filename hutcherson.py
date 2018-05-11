@@ -14,16 +14,22 @@ def is_pr_event(data):
 
 
 def is_push_event(data):
-    return 'ref' in data and 'before' in data and 'after' in data
-
-
-def get_pr_target(pr_data):
-    return pr_data['base']['repo']['full_name'] + '/' + pr_data['base']['ref']
+    return all(k in data for k in ('ref', 'before', 'after'))
 
 
 def get_pushed_branch(post_data):
     ref = post_data['ref'].split('/')[-1]
     return post_data['repository']['full_name'] + '/' + ref
+
+
+class PR:
+    def __init__(self, post_data):
+        pr_data = post_data['pull_request']
+        base = pr_data['base']
+
+        self.id = pr_data['id']
+        self.target = base['repo']['full_name'] + '/' + base['ref']
+        self.api_url = pr_data['url']
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -86,17 +92,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             )
         )
 
-        pr_id = pr_data['id']
         action = post_data['action']
+        pr = PR(post_data)
 
         with shelve.open(self.options.store, writeback=True) as store:
 
             if action in ('opened', 'reopened'):
-                store["pulls"][pr_id] = get_pr_target(pr_data)
+                store["pulls"][pr.id] = pr
 
             elif action == 'closed':
                 try:
-                    del store["pulls"][pr_id]
+                    del store["pulls"][pr.id]
                 except KeyError:
                     pass
 
@@ -106,9 +112,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         logging.info("Push event for " + branch)
 
         with shelve.open(self.options.store) as store:
-            count = sum(1 for target in store["pulls"].values() if target == branch)
+            affected_prs = [pr for pr in store["pulls"].values() if pr.target == branch]
 
-        logging.info("{} PRs would be affected".format(count))
+        for pr in affected_prs:
+            print("PR {} affected ({})".format(pr.id, pr.api_url))
 
 
 def run(options):
