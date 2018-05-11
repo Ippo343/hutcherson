@@ -3,6 +3,7 @@
 
 import argparse
 import configparser
+import hmac
 import json
 import logging
 from http import HTTPStatus
@@ -20,7 +21,7 @@ class Hutcherson(BaseHTTPRequestHandler):
     """
 
     security_header = None
-    security_token = None
+    security_secret = None
     storage_path = None
     pr_comment = None
 
@@ -50,8 +51,11 @@ class Hutcherson(BaseHTTPRequestHandler):
         # Github sends a secret token which is set when the hook is installed,
         # if the token does not match ignore the request (again, spambots)
 
-        secret = self.headers.get(self.security_header)
-        if not secret or secret != self.security_token:
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+
+        auth = self.headers.get(self.security_header)
+        if not self.validate_token(self.security_secret, auth, post_data):
             logging.warning("Received a POST request with an invalid token "
                             "from {}".format(self.client_address))
 
@@ -60,10 +64,8 @@ class Hutcherson(BaseHTTPRequestHandler):
 
         # endregion
 
+        post_data = post_data.decode('utf-8')
         logging.info("POST request from {}.\nHeaders:\n{}".format(self.path, self.headers))
-
-        content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
-        post_data = self.rfile.read(content_length).decode('utf-8')  # <--- Gets the data itself
 
         try:
             post_data = json.loads(post_data)
@@ -141,6 +143,11 @@ class Hutcherson(BaseHTTPRequestHandler):
         req = requests.post(url, data=json.dumps(payload))
         logging.debug("Request completed with status {}".format(req))
 
+    def validate_token(self, secret, auth, post_data):
+        hasher = hmac.new(self.security_secret, msg=post_data, digestmod="sha1")
+        digest = "sha1=" + hasher.hexdigest()
+        return hmac.compare_digest(digest, auth)
+
 
 # region Helpers
 
@@ -185,9 +192,11 @@ def run(config):
     port = int(config.get("server", "port"))
 
     Hutcherson.security_header = config.get("security", "header")
-    Hutcherson.security_token = config.get("security", "token")
+    Hutcherson.security_secret = config.get("security", "token")
     Hutcherson.storage_path = config.get("storage", "path")
     Hutcherson.pr_comment = config.get("comment", "body")
+
+    Hutcherson.security_secret = Hutcherson.security_secret.encode("utf8")
 
     httpd = HTTPServer((address, port), Hutcherson)
 
