@@ -21,6 +21,11 @@ def get_pr_target(pr_data):
     return pr_data['base']['repo']['full_name'] + '/' + pr_data['base']['ref']
 
 
+def get_pushed_branch(post_data):
+    ref = post_data['ref'].split('/')[-1]
+    return post_data['repository']['full_name'] + '/' + ref
+
+
 class RequestHandler(BaseHTTPRequestHandler):
     options = None
 
@@ -97,13 +102,13 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def handle_push(self, post_data):
 
-        logging.info(
-            "Push event for {} ({} -> {})".format(
-                post_data['ref'],
-                post_data['before'],
-                post_data['after'],
-            )
-        )
+        branch = get_pushed_branch(post_data)
+        logging.info("Push event for " + branch)
+
+        with shelve.open(self.options.store) as store:
+            count = sum(1 for target in store["pulls"].values() if target == branch)
+
+        logging.info("{} PRs would be affected".format(count))
 
 
 def run(options):
