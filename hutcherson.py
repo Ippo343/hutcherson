@@ -2,6 +2,7 @@
 # -*- coding: utf8 -*-
 
 import argparse
+import configparser
 import json
 import logging
 from http import HTTPStatus
@@ -18,7 +19,10 @@ class Hutcherson(BaseHTTPRequestHandler):
     Keeps a list of the open PRs and posts a comment when their target branch is updated.
     """
 
-    options = None
+    security_header = None
+    security_token = None
+    storage_path = None
+    pr_comment = None
 
     # region Boring stuff
 
@@ -30,7 +34,7 @@ class Hutcherson(BaseHTTPRequestHandler):
         self.send_response(response_code.value)
         self.send_header('Content-type', 'text/html')
         self.end_headers()
-        self.wfile.write(response_code.phrase)
+        self.wfile.write(response_code.phrase.encode("utf8"))
 
     def do_GET(self):
         # This server is not supposed to receive a GET, ever.
@@ -46,8 +50,8 @@ class Hutcherson(BaseHTTPRequestHandler):
         # Github sends a secret token which is set when the hook is installed,
         # if the token does not match ignore the request (again, spambots)
 
-        secret = self.headers.get(self.options.security_header)
-        if not secret or secret != self.options.secret:
+        secret = self.headers.get(self.security_header)
+        if not secret or secret != self.security_token:
             logging.warning("Received a POST request with an invalid token "
                             "from {}".format(self.client_address))
 
@@ -91,7 +95,7 @@ class Hutcherson(BaseHTTPRequestHandler):
         pr = PullRequest(post_data)
         logging.info("{} is {}".format(pr, action))
 
-        with shelve.open(self.options.store, writeback=True) as store:
+        with shelve.open(self.storage_path, writeback=True) as store:
 
             if action in ('opened', 'reopened'):
                 store["pulls"][pr.id] = pr
@@ -112,12 +116,12 @@ class Hutcherson(BaseHTTPRequestHandler):
         branch = get_pushed_branch(post_data)
         logging.info("{} was pushed".format(branch))
 
-        with shelve.open(self.options.store) as store:
+        with shelve.open(self.storage_path) as store:
             affected_prs = [pr for pr in store["pulls"].values() if pr.target == branch]
 
         for pr in affected_prs:
             try:
-                logging.debug("Updating {}")
+                logging.debug("Updating {}".format(pr))
                 self.handle_affected_pr(pr)
             except Exception as e:
                 logging.exception("Could not update {}".format(pr.id), e)
@@ -128,11 +132,11 @@ class Hutcherson(BaseHTTPRequestHandler):
         Posts a comment under a single PR that is affected by a push
         """
 
-        payload = {"body": "The target branch for this PR was pushed"}
+        payload = {"body": self.pr_comment}
 
         # Yep, for some reason the API endpoint to post a comment is not under "pull". Go figure.
         url = pr.api_url.replace("/pulls/", "/issues/") + "/comments"
-        logging.debug("Posting comment to {}".format(payload, url))
+        logging.debug("Posting comment to {}".format(url))
 
         req = requests.post(url, data=json.dumps(payload))
         logging.debug("Request completed with status {}".format(req))
@@ -176,12 +180,18 @@ class PullRequest:
         return "PR {} from {} to {}".format(self.id, self.origin, self.target)
 
 
-def run(options):
-    server_address = ('', options.port)
-    Hutcherson.options = options
-    httpd = HTTPServer(server_address, Hutcherson)
+def run(config):
+    address = config.get("server", "address")
+    port = int(config.get("server", "port"))
 
-    logging.info('Starting server on {}'.format(server_address))
+    Hutcherson.security_header = config.get("security", "header")
+    Hutcherson.security_token = config.get("security", "token")
+    Hutcherson.storage_path = config.get("storage", "path")
+    Hutcherson.pr_comment = config.get("comment", "body")
+
+    httpd = HTTPServer((address, port), Hutcherson)
+
+    logging.info('Starting server on {}'.format(httpd.server_address))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -194,20 +204,16 @@ def run(options):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s|%(levelname)8s|%(message)s")
 
-    # region argparse config
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--port', type=int, default=48464)
-    parser.add_argument('--security-header', type=str, default='X-Hub-Signature')
-    parser.add_argument('--secret', type=str, required=True)
-    parser.add_argument('--store', type=str, default="db")
+    parser.add_argument("config", type=str)
     args = parser.parse_args(sys.argv[1:])
 
-    # endregion
+    config_file = configparser.ConfigParser()
+    config_file.read(args.config)
 
     # Create a default, empty shelve for the first run
-    with shelve.open(args.store, writeback=True) as store:
+    with shelve.open(config_file.get("storage", "path"), writeback=True) as store:
         store.setdefault("pulls", {})
 
-    run(args)
+    run(config_file)
     logging.info("Bye!")
