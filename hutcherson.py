@@ -4,6 +4,7 @@
 import argparse
 import json
 import logging
+import shelve
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -14,6 +15,10 @@ def is_pr_event(data):
 
 def is_push_event(data):
     return 'ref' in data and 'before' in data and 'after' in data
+
+
+def get_pr_target(pr_data):
+    return pr_data['base']['repo']['full_name'] + '/' + pr_data['base']['ref']
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -35,10 +40,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
-        content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
-        logging.info("POST request,\nPath: %s\nHeaders:\n%s\n\n",
-                     str(self.path), str(self.headers))
 
+        # Validate the secret key
         secret = self.headers.get(self.options.security_header)
         if not secret or secret != self.options.secret:
             self._set_response(
@@ -47,13 +50,21 @@ class RequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        logging.info("POST request,\nPath: %s\nHeaders:\n%s\n\n",
+                     str(self.path), str(self.headers))
+
+        content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
         post_data = self.rfile.read(content_length).decode('utf-8')  # <--- Gets the data itself
         post_data = json.loads(post_data)
 
         if is_pr_event(post_data):
             self.handle_pull_request(post_data)
+            self._set_response()
+
         elif is_push_event(post_data):
             self.handle_push(post_data)
+            self._set_response()
+
         else:
             self._set_response(
                 response_code=406,
@@ -69,6 +80,20 @@ class RequestHandler(BaseHTTPRequestHandler):
                 pr_data['base']['label'],
             )
         )
+
+        pr_id = pr_data['id']
+        action = post_data['action']
+
+        with shelve.open(self.options.store, writeback=True) as store:
+
+            if action in ('opened', 'reopened'):
+                store["pulls"][pr_id] = get_pr_target(pr_data)
+
+            elif action == 'closed':
+                try:
+                    del store["pulls"][pr_id]
+                except KeyError:
+                    pass
 
     def handle_push(self, post_data):
 
@@ -103,6 +128,10 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--port', type=int, default=48464)
     parser.add_argument('--security-header', type=str, default='X-Hub-Signature')
     parser.add_argument('--secret', type=str, required=True)
+    parser.add_argument('--store', type=str, default="db")
     args = parser.parse_args(sys.argv[1:])
+
+    with shelve.open(args.store, writeback=True) as store:
+        store.setdefault("pulls", {})
 
     run(args)
