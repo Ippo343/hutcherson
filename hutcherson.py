@@ -219,14 +219,18 @@ def run(config):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s|%(levelname)8s|%(message)s")
-
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str)
     args = parser.parse_args(sys.argv[1:])
 
     config_file = configparser.ConfigParser()
     config_file.read(args.config)
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s|%(levelname)8s|%(message)s",
+        filename=config_file.get("logging", "path")
+    )
 
     # Create a default, empty shelve for the first run
     with shelve.open(config_file.get("storage", "path"), writeback=True) as store:
