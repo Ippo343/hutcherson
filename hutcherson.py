@@ -102,7 +102,7 @@ class Hutcherson(BaseHTTPRequestHandler):
 
         with shelve.open(self.storage_path, writeback=True) as store:
 
-            if action in ('opened', 'reopened'):
+            if action in ('opened', 'reopened', 'synchronize'):
                 store["pulls"][pr.id] = pr
                 logging.debug("{} stored".format(pr))
 
