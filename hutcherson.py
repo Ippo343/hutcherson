@@ -85,11 +85,8 @@ class Hutcherson(BaseHTTPRequestHandler):
             self.handle_push(post_data)
             self._set_response(HTTPStatus.OK)
 
-        elif is_ping(post_data):
-            self._set_response(HTTPStatus.OK)
-
         else:
-            self._set_response(HTTPStatus.BAD_REQUEST)
+            self._set_response(HTTPStatus.OK)
 
     def handle_pull_request(self, post_data):
         """
@@ -165,10 +162,6 @@ def is_push_event(data):
 def get_pushed_branch(post_data):
     ref = post_data['ref'].split('/')[-1]
     return post_data['repository']['full_name'] + '/' + ref
-
-
-def is_ping(post_data):
-    return "hook" in post_data and "type" in post_data["hook"] and "events" in post_data["hook"]
 
 
 def get_full_branch(repo_data):
