@@ -49,44 +49,51 @@ class Hutcherson(BaseHTTPRequestHandler):
     # endregion
 
     def do_POST(self):
-
-        # region secret token validation
-        # Github sends a secret token which is set when the hook is installed,
-        # if the token does not match ignore the request (again, spambots)
-
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-
-        auth = self.headers.get(self.security_header)
-        if not self.validate_token(auth, post_data):
-            logging.warning("Received a POST request with an invalid token "
-                            "from {}".format(self.client_address))
-
-            self._set_response(HTTPStatus.FORBIDDEN)
-            return
-
-        # endregion
-
-        post_data = post_data.decode('utf-8')
-        logging.info("POST request from {}.\nHeaders:\n{}".format(self.path, self.headers))
-
         try:
-            post_data = json.loads(post_data)
+
+            # region secret token validation
+
+            # Github sends a secret token which is set when the hook is installed,
+            # if the token does not match ignore the request (again, spambots)
+
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+
+            auth = self.headers.get(self.security_header)
+            if not self.validate_token(auth, post_data):
+                logging.warning("Received a POST request with an invalid token "
+                                "from {}".format(self.client_address))
+
+                self._set_response(HTTPStatus.FORBIDDEN)
+                return
+
+            # endregion
+
+            post_data = post_data.decode('utf-8')
+            logging.info("POST request from {}.\nHeaders:\n{}".format(self.path, self.headers))
+
+            try:
+                post_data = json.loads(post_data)
+            except Exception as e:
+                logging.exception("Could not parse the request data", e)
+                self._set_response(HTTPStatus.BAD_REQUEST)
+                return
+
+            if is_pr_event(post_data):
+                self.handle_pull_request(post_data)
+                self._set_response(HTTPStatus.OK)
+
+            elif is_push_event(post_data):
+                self.handle_push(post_data)
+                self._set_response(HTTPStatus.OK)
+
+            else:
+                self._set_response(HTTPStatus.OK)
+
         except Exception as e:
-            logging.exception("Could not parse the request data", e)
-            self._set_response(HTTPStatus.BAD_REQUEST)
-            return
+            logging.exception(e)
+            self._set_response(HTTPStatus.INTERNAL_SERVER_ERROR)
 
-        if is_pr_event(post_data):
-            self.handle_pull_request(post_data)
-            self._set_response(HTTPStatus.OK)
-
-        elif is_push_event(post_data):
-            self.handle_push(post_data)
-            self._set_response(HTTPStatus.OK)
-
-        else:
-            self._set_response(HTTPStatus.OK)
 
     def handle_pull_request(self, post_data):
         """
