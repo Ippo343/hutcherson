@@ -105,11 +105,11 @@ class Hutcherson(BaseHTTPRequestHandler):
 
         with shelve.open(self.storage_path, writeback=True) as store:
 
-            if action in ('opened', 'reopened', 'synchronize'):
+            if action != 'closed':
                 store["pulls"][pr.id] = pr
                 logging.debug("{} stored".format(pr))
 
-            elif action == 'closed':
+            else:
                 try:
                     del store["pulls"][pr.id]
                     logging.debug("PR {} deleted".format(pr.id))
