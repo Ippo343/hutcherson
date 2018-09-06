@@ -140,6 +140,16 @@ class Hutcherson(BaseHTTPRequestHandler):
         Posts a comment under a single PR that is affected by a push
         """
 
+        # Try to check if the PR is blocked. If it is, skip it.
+        try:
+            labels = pr.payload.get('labels', [])
+            for label in labels:
+                if label.get('name', "") == "blocked":
+                    logging.debug("PR {} is blocked, not asking an update".format(pr))
+                    return
+        except Exception as e:
+            logging.exception(e)
+
         payload = {"body": self.pr_comment}
 
         # Yep, for some reason the API endpoint to post a comment is not under "pull". Go figure.
@@ -184,6 +194,7 @@ class PullRequest:
         self.api_url = pr_data['url']
         self.origin = get_full_branch(pr_data['head'])
         self.target = get_full_branch(pr_data['base'])
+        self.payload = pr_data
 
     def __str__(self):
         return "PR {} from {} to {}".format(self.id, self.origin, self.target)
@@ -234,6 +245,8 @@ if __name__ == '__main__':
     # Create a default, empty shelve for the first run
     with shelve.open(config_file.get("storage", "path"), writeback=True) as store:
         store.setdefault("pulls", {})
+        logging.info("Tracking {} pull requests".format(len(store['pulls'])))
 
     run(config_file)
     logging.info("Bye!")
+
