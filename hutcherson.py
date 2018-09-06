@@ -61,16 +61,15 @@ class Hutcherson(BaseHTTPRequestHandler):
 
             auth = self.headers.get(self.security_header)
             if not self.validate_token(auth, post_data):
-                logging.warning("Received a POST request with an invalid token "
-                                "from {}".format(self.client_address))
-
+                logging.warning("Received a POST request with an invalid token from {}".format(self.client_address))
                 self._set_response(HTTPStatus.FORBIDDEN)
                 return
+            else:
+                logging.debug("POST request from {}".format(self.client_address))
 
             # endregion
 
             post_data = post_data.decode('utf-8')
-            logging.info("POST request from {}.\nHeaders:\n{}".format(self.path, self.headers))
 
             try:
                 post_data = json.loads(post_data)
