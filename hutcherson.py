@@ -65,7 +65,7 @@ class Hutcherson(BaseHTTPRequestHandler):
                 self._set_response(HTTPStatus.FORBIDDEN)
                 return
             else:
-                logging.debug("POST request from {}".format(self.client_address))
+                logging.debug("Valid POST request from {}".format(self.client_address))
 
             # endregion
 
@@ -106,13 +106,16 @@ class Hutcherson(BaseHTTPRequestHandler):
         with shelve.open(self.storage_path, writeback=True) as store:
 
             if action != 'closed':
+                is_new = pr.id not in store["pulls"]
                 store["pulls"][pr.id] = pr
-                logging.debug("{} stored".format(pr))
+
+                if is_new:
+                    logging.debug("Tracking {} pull requests".format(len(store["pulls"])))
 
             else:
                 try:
                     del store["pulls"][pr.id]
-                    logging.debug("PR {} deleted".format(pr.id))
+                    logging.debug("Tracking {} pull requests".format(len(store["pulls"])))
                 except KeyError:
                     pass
 
@@ -150,6 +153,7 @@ class Hutcherson(BaseHTTPRequestHandler):
         except Exception as e:
             logging.exception(e)
 
+        logging.debug("Posting comment to {}".format(pr))
         payload = {"body": self.pr_comment}
 
         # Yep, for some reason the API endpoint to post a comment is not under "pull". Go figure.
